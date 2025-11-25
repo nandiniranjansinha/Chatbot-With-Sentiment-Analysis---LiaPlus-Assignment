@@ -7,106 +7,117 @@ class ChatBot:
         self.history = []
         self.sentiment = SentimentAnalyzer()
 
-    # ------------------------------
-    # Utility: Clean hallucinations
-    # ------------------------------
-    def clean_reply(self, text):
-        if not text:
-            return "(No response)"
-
-        t = text.strip()
-
-        # Remove disclaimers
-        remove_phrases = [
-            "as an ai", 
-            "as a language model",
-            "i cannot", 
-            "i am not capable",
-            "i do not have the capability",
-            "i do not have the ability"
-        ]
-        for p in remove_phrases:
-            if p in t.lower():
-                t = t.split(".")[0]  # keep first sentence only
-
-        # Remove paragraphs that are NOT conversational
-        stop_keywords = [
-            "consider that you are", "let's assume", "the following statements",
-            "based on this information", "first,", "step"
-        ]
-        for key in stop_keywords:
-            idx = t.lower().find(key)
-            if idx != -1:
-                t = t[:idx].strip()
-
-        # Limit extreme long outputs
-        if len(t.split()) > 45:
-            t = " ".join(t.split()[:45]) + "..."
-
-        return t.strip()
-
-    # ------------------------------
-    # LLM Call
-    # ------------------------------
-    def generate_reply(self, user_msg):
-
-        prompt = (
-            "You are a friendly, concise assistant.\n"
-            "RULES:\n"
-            "- Keep responses short (2–3 sentences max).\n"
-            "- Stay on topic of the user message ONLY.\n"
-            "- Do NOT generate stories, tasks, assignments, comparisons, or lists.\n"
-            "- Do NOT explain your reasoning.\n"
-            "- Do NOT say 'as an AI language model'.\n"
-            "- Never mention capabilities or limitations.\n"
-            "- Never provide instructions unless asked.\n"
-            "- If user expresses emotion, respond with empathy.\n\n"
-            f"User: {user_msg}\nAssistant:"
-        )
+    def generate_reply(self, user_msg, sentiment):
+        context = ""
+        if len(self.history) > 1:
+            recent = self.history[-3:]
+            context = "\n".join([f"User: {msg}" for msg in recent[-2:]]) + "\n"
+        
+        tone = {
+            "NEGATIVE": "Be empathetic.",
+            "POSITIVE": "Be enthusiastic.", 
+            "NEUTRAL": "Be friendly."
+        }.get(sentiment, "Be friendly.")
+        
+        prompt = f"{context}User: {user_msg}\n{tone} Reply briefly (1-2 sentences).\nBot:"
 
         try:
-            process = subprocess.Popen(
+            result = subprocess.run(
                 ["ollama", "run", self.model],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=False
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                encoding='utf-8',
+                errors='ignore'
             )
+            
+            if result.returncode == 0:
+                return self.clean_reply(result.stdout)
+            else:
+                return "I'm here to help! What would you like to talk about?"
 
-            out_bytes, _ = process.communicate(
-                input=prompt.encode("utf-8", "ignore")
-            )
+        except subprocess.TimeoutExpired:
+            return "Let me think... what else can I help you with?"
+        except Exception:
+            return "I'm listening. Tell me more!"
 
-            out = out_bytes.decode("utf-8", "ignore")
+    def clean_reply(self, text):
+        if not text:
+            return "I'm here to chat!"
 
-            return self.clean_reply(out)
+        text = text.strip()
+        lines = []
+        
+        for line in text.split('\n'):
+            line = line.strip()
+            lower = line.lower()
+            
+            skip = ['as an ai', 'language model', 'imagine', "let's", 'step 1', 
+                    'consider', 'suppose', 'here are', "here's", 'based on']
+            
+            if any(s in lower for s in skip):
+                continue
+            if line:
+                lines.append(line)
+        
+        text = ' '.join(lines)
+        sentences = [s.strip() for s in text.split('.') if len(s.strip()) > 10][:2]
+        
+        if not sentences:
+            return "I'm here to help!"
+        
+        result = '. '.join(sentences)
+        if not result.endswith('.'):
+            result += '.'
+            
+        words = result.split()
+        if len(words) > 35:
+            result = ' '.join(words[:35]) + '...'
+        
+        return result
 
-        except Exception as e:
-            return f"(LLM error: {e})"
-
-    # ------------------------------
-    # Chat Loop
-    # ------------------------------
     def run(self):
-        print("Chatbot (Local Phi LLM + Sentiment Analysis). Type exit/quit/done.\n")
+        print("=" * 60)
+        print("Chatbot Ready (Phi LLM + Sentiment Analysis)")
+        print("=" * 60)
+        print("Type 'exit', 'quit', or 'bye' to end.\n")
 
         while True:
-            user = input("You: ")
-            if user.lower() in ["exit", "quit", "done"]:
+            try:
+                user = input("You: ").strip()
+                
+                if not user:
+                    continue
+                    
+                if user.lower() in ["exit", "quit", "bye", "done"]:
+                    print("\n👋 Goodbye!\n")
+                    break
+
+                self.history.append(user)
+                senti = self.sentiment.single_sentiment(user)
+                
+                print(f"    [Sentiment: {senti}]")
+                bot_reply = self.generate_reply(user, senti)
+                print(f"Bot: {bot_reply}\n")
+
+            except KeyboardInterrupt:
+                print("\n\n👋 Interrupted.\n")
                 break
+            except Exception as e:
+                print(f"Error: {e}\n")
+                continue
 
-            self.history.append(user)
+        if self.history:
+            final, trend, per_msg = self.sentiment.conversation_sentiment(self.history)
 
-            senti = self.sentiment.single_sentiment(user)
-            bot_reply = self.generate_reply(user)
-
-            print(f'\nUser: "{user}"')
-            print(f"→ Sentiment: {senti}")
-            print(f'Bot: "{bot_reply}"\n')
-
-        final, trend, per_msg = self.sentiment.conversation_sentiment(self.history)
-
-        print("\n--- FINAL SENTIMENT REPORT ---")
-        print("Overall Conversation Sentiment:", final)
-        print("Trend:", trend)
-        print("Each message sentiment:", per_msg)
+            print("=" * 60)
+            print("SENTIMENT REPORT")
+            print("=" * 60)
+            print(f"Overall: {final}")
+            print(f"Trend: {trend}")
+            print(f"\nMessages:")
+            for i, (msg, sent) in enumerate(zip(self.history, per_msg), 1):
+                preview = msg[:50] + '...' if len(msg) > 50 else msg
+                print(f"  {i}. [{sent}] {preview}")
+            print("=" * 60)
