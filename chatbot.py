@@ -1,5 +1,7 @@
 import subprocess
 from sentiment import SentimentAnalyzer
+import random
+
 
 class ChatBot:
     def __init__(self, model="phi"):
@@ -10,16 +12,17 @@ class ChatBot:
     def generate_reply(self, user_msg, sentiment):
         # Build better context with sentiment info
         context = ""
-        if len(self.history) > 1:
-            recent = self.history[-3:]
-            context = "Previous messages:\n" + "\n".join([f"- {msg}" for msg in recent]) + "\n\n"
+        # if len(self.history) > 1:
+        #     recent = self.history[-3:]
+        #     context = "Previous messages:\n" + "\n".join([f"- {msg}" for msg in recent]) + "\n\n"
         
         # More specific tone instructions based on sentiment
         tone_prompts = {
-            "NEGATIVE": "The user is feeling down. Be empathetic, supportive, and caring. Ask if they want to talk about it. Keep it brief (1-2 sentences).",
-            "POSITIVE": "The user is happy! Match their enthusiasm! Be warm and celebratory. Keep it brief (1-2 sentences).", 
-            "NEUTRAL": "Be friendly and conversational. Keep it brief (1-2 sentences)."
+        "NEGATIVE": "The user seems to be experiencing difficulty or a negative emotion. Respond in a calm, supportive, and professional manner. Keep responses concise and clear.",
+        "POSITIVE": "The user seems to be in a positive mood. Match their tone in a professional and warm way. Keep responses concise.",
+        "NEUTRAL": "Respond in a clear, professional, and neutral manner. Be helpful and concise."
         }
+
         
         tone = tone_prompts.get(sentiment, tone_prompts["NEUTRAL"])
         
@@ -29,6 +32,7 @@ class ChatBot:
 {tone}
 
 Respond naturally as a friendly chatbot. Do not use phrases like "as an AI" or "language model". Just reply directly.
+
 
 Response:"""
 
@@ -63,41 +67,52 @@ Response:"""
         """Check if reply is too generic"""
         generic_phrases = [
             "i'm here to help",
+            "how can i assist",
             "what else can i help",
             "let me think",
             "i'm here to chat",
-            "tell me more"
+            "tell me more",
+            "as a professional"
         ]
+
         lower = text.lower()
         return any(phrase in lower for phrase in generic_phrases) or len(text) < 20
 
     def fallback_reply(self, user_msg, sentiment):
-        """Generate sentiment-aware fallback responses"""
-        lower_msg = user_msg.lower()
-        
-        # Specific keyword-based responses
-        if "tired" in lower_msg or "exhausted" in lower_msg:
-            return "I'm sorry you're feeling tired. Make sure to get some rest when you can. Is there anything I can help with?"
-        
-        if "sad" in lower_msg or "upset" in lower_msg:
-            return "I'm sorry you're feeling sad. Do you want to talk about what's bothering you? I'm here to listen."
-        
-        if "birthday" in lower_msg:
-            return "Happy Birthday! 🎉 I hope you have an amazing day filled with joy and celebration!"
-        
-        if "happy" in lower_msg or "great" in lower_msg:
-            return "That's wonderful to hear! I'm so glad you're feeling good!"
-        
-        if "hungry" in lower_msg or "starving" in lower_msg:
-            return "Sounds like it's time for a good meal! Hope you get to eat something delicious soon."
-        
-        # General sentiment-based fallbacks
-        if sentiment == "NEGATIVE":
-            return "I hear you. That sounds tough. Would you like to talk more about it?"
-        elif sentiment == "POSITIVE":
-            return "That's great! I'm happy for you!"
+        import random
+        lower = user_msg.lower()
+
+        # --- NEGATION UNDERSTANDING ---
+        if ("not" in lower or "ain't" in lower or "no longer" in lower):
+            if "sad" in lower or "down" in lower or "upset" in lower or "tired" in lower:
+                return "Understood. Glad you're not feeling that way anymore."
+
+        # --- SENTIMENT-BASED PROFESSIONAL RESPONSES ---
+        positive = [
+        "That's good to hear. Would you like to share more?",
+        "I'm glad things are going well. How else can I assist you?",
+        "Sounds good. Let me know if there's anything specific you'd like to discuss."
+        ]
+
+        neutral = [
+        "Alright. How can I assist further?",
+        "Understood. Feel free to tell me more.",
+        "Okay. Let me know how I can help."
+        ]
+
+        negative = [
+        "I'm sorry you're feeling this way. Would you like to talk about it?",
+        "I understand this can be difficult. I'm here to listen if you'd like to share more.",
+        "That sounds challenging. Tell me more when you're ready."
+        ]
+
+        if sentiment == "POSITIVE":
+            return random.choice(positive)
+        elif sentiment == "NEGATIVE":
+            return random.choice(negative)
         else:
-            return "I'm listening. Tell me more!"
+            return random.choice(neutral)
+
 
     def clean_reply(self, text):
         if not text:
